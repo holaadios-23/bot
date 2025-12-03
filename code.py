@@ -1,90 +1,107 @@
 import os
 import discord
-from discord.ext import commands
+from discord.ext import commands,tasks
 from dotenv import load_dotenv
+import colorsys
 
 # Cargar variables de entorno desde un archivo .env
 load_dotenv()
 
-# --- CONFIGURACIÓN ---
-# Mueve tu token a un archivo .env por seguridad.
+# --- CONFIGURACIÓN PRINCIPAL ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-# Reemplaza con los IDs reales de tu servidor (activa el Modo Desarrollador en Discord)
-CANAL_ID = 1357862393698582717    # El canal donde se esperan las imágenes
-ROL_APROBADO_ID = 1398080680088436776 # El ID del rol a asignar
+CANAL_ID = 1357862393698582717 # ID del canal para subir imágenes
+ROL_APROBADO_ID = 1398080680088436776 # ID del rol a asignar por la imagen
+EMOJI_REACCION = '✅'
 
-# El emoji que usará el bot para reaccionar
-EMOJI_REACCION = '✅' # Puedes usar el nombre o el ID si es un emoji personalizado
+# --- CONFIGURACIÓN ROL ARCOÍRIS ---
+ROL_RAINBOW_ID = 1445836449944567819
+TIEMPO_ENTRE_CAMBIOS = 5.0 # Segundos
+TONALIDAD_ACTUAL = 0 # Hue inicial (0 = Rojo)
+INCREMENTO_HUE = 15 # Pasos del cambio de color (360 / 15 = 24 colores por ciclo)
 
-# Necesitas definir las Intenciones (Intents) para que el bot pueda recibir 
-# eventos de mensajes y cambios de estado.
-# NECESITAS HABILITAR LOS MESSAGE CONTENT INTENTS EN EL PORTAL DE DESARROLLADORES DE DISCORD
+# Intenciones
 intents = discord.Intents.default()
-intents.message_content = True # Permite leer el contenido de los mensajes
-intents.members = True         # Permite acceder a la información de los miembros y roles
+intents.message_content = True
+intents.members = True
 
-# Inicializa el bot (cliente)
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- EVENTO DE MENSAJE ---
+# --- FUNCIÓN PARA CONVERTIR HSL A HEXADECIMAL (CORREGIDA) ---
+# Usamos L=0.5 (Luminosidad media) y S=1.0 (Saturación máxima) para colores puros.
+def hsl_a_discord_color(h):
+    # colorsys.hls_to_rgb(h, l, s)
+    r, g, b = colorsys.hls_to_rgb(h, 0.5, 1.0) 
+    
+    # Convertir floats (0.0-1.0) a enteros (0-255)
+    r = int(r * 255)
+    g = int(g * 255)
+    b = int(b * 255)
+    
+    # Combinar en formato 0xRRGGBB
+    return (r << 16) + (g << 8) + b 
+
+# --- EVENTO DE MENSAJE (APROBACIÓN DE IMAGEN) ---
 @bot.event
 async def on_message(message):
-    # 1. Ignorar mensajes del propio bot
-    if message.author == bot.user:
+    if message.author.bot or message.channel.id != CANAL_ID:
         return
 
-    # 2. Verificar que el mensaje provenga del canal específico
-    if message.channel.id != CANAL_ID:
-        return
-
-    # 3. Verificar si el mensaje contiene algún adjunto (Attachment)
-    #    (Esto suele indicar que es una imagen o archivo subido)
     if message.attachments:
         try:
-            # Es más seguro obtener el objeto Member directamente desde el guild
-            # para asegurarse de que no sea un objeto User si no está en caché.
             member = message.guild.get_member(message.author.id)
             if not member:
-                print(f"No se pudo encontrar al miembro con ID {message.author.id} en el servidor.")
                 return
             
-            # A. Reaccionar al mensaje
             await message.add_reaction(EMOJI_REACCION)
-
-            # B. Obtener el objeto Role usando el ID
             rol_aprobado = message.guild.get_role(ROL_APROBADO_ID)
 
             if rol_aprobado:
-                # C. Asignar el rol al miembro
-                await member.add_roles(rol_aprobado, reason="Imagen enviada y aprobada automáticamente.")
+                await member.add_roles(rol_aprobado, reason="Imagen aprobada.")
                 print(f"Rol '{rol_aprobado.name}' asignado a {member.name}")
             else:
-                print(f"Error: No se encontró el rol con ID {ROL_APROBADO_ID}")
-                # Opcional: Avisar en el canal que hay un problema de configuración
-                await message.channel.send(f"⚠️ Error de configuración: No se encontró el rol con ID `{ROL_APROBADO_ID}`. Por favor, avisa a un administrador.")
-
+                await message.channel.send(f"⚠️ Error: No se encontró el rol con ID `{ROL_APROBADO_ID}`.")
 
         except discord.Forbidden:
-            print("Error de Permisos: El bot no tiene los permisos necesarios (Gestionar Roles o Reaccionar).")
-            # Avisar al canal si el bot no tiene permisos es una buena práctica.
-            await message.channel.send("⚠️ Error: No tengo permisos para reaccionar o asignar roles. Por favor, revisa mis permisos.")
+            await message.channel.send("⚠️ Error: No tengo permisos para reaccionar o asignar roles.")
         except Exception as e:
-            print(f"Ocurrió un error inesperado: {e}")
-            # await message.channel.send("⚠️ Error inesperado al procesar la imagen.")
+            print(f"Error inesperado en on_message: {e}")
             
-    # Esto es necesario si usas commands.Bot para que también procese comandos (si tienes alguno)
     await bot.process_commands(message)
 
+# --- FUNCIÓN DE BUCLE ASÍNCRONO (RAINBOW ROLE) ---
+@tasks.loop(seconds=TIEMPO_ENTRE_CAMBIOS)
+async def cambiar_color_rol():
+    global TONALIDAD_ACTUAL
+    await bot.wait_until_ready()
+    
+    TONALIDAD_ACTUAL = (TONALIDAD_ACTUAL + INCREMENTO_HUE) % 360
+    new_color_int = hsl_a_discord_color(TONALIDAD_ACTUAL / 360) 
+
+    for guild in bot.guilds:
+        rainbow_role = guild.get_role(ROL_RAINBOW_ID)
+
+        if rainbow_role:
+            try:
+                # No se pasa 'reason' para minimizar el log
+                await rainbow_role.edit(color=new_color_int)
+                print(f"Color de '{rainbow_role.name}' en '{guild.name}' cambiado a {hex(new_color_int)}")
+            except discord.Forbidden:
+                print(f"Error: Bot no puede editar rol '{rainbow_role.name}' en '{guild.name}'.")
+            except Exception as e:
+                print(f"Error al cambiar color: {e}")
+                
 # --- INICIO DEL BOT ---
 @bot.event
 async def on_ready():
     print(f'Bot iniciado como: {bot.user}')
     print('------')
-
+    if not cambiar_color_rol.is_running():
+        cambiar_color_rol.start()
+        
 if TOKEN is None:
-    print("Error: El token del bot no está configurado. Asegúrate de crear un archivo .env con DISCORD_TOKEN='tu_token'")
+    print("Error: El token del bot no está configurado.")
 else:
     try:
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
-        print("Error: El token proporcionado es inválido. Revisa tu archivo .env.")
+        print("Error: El token proporcionado es inválido.")
