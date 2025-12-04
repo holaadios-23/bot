@@ -15,7 +15,7 @@ EMOJI_REACCION = '✅'
 
 # --- CONFIGURACIÓN ROL ARCOÍRIS ---
 ROL_RAINBOW_ID = 1445836449944567819
-TIEMPO_ENTRE_CAMBIOS = 5.0 # Segundos
+TIEMPO_ENTRE_CAMBIOS = 15.0 # Segundos
 TONALIDAD_ACTUAL = 0 # Hue inicial (0 = Rojo)
 INCREMENTO_HUE = 15 # Pasos del cambio de color (360 / 15 = 24 colores por ciclo)
 
@@ -68,28 +68,39 @@ async def on_message(message):
             
     await bot.process_commands(message)
 
-# --- FUNCIÓN DE BUCLE ASÍNCRONO (RAINBOW ROLE) ---
+# --- FUNCIÓN DE BUCLE ASÍNCRONO ---
 @tasks.loop(seconds=TIEMPO_ENTRE_CAMBIOS)
 async def cambiar_color_rol():
     global TONALIDAD_ACTUAL
     await bot.wait_until_ready()
     
-    TONALIDAD_ACTUAL = (TONALIDAD_ACTUAL + INCREMENTO_HUE) % 360
-    new_color_int = hsl_a_discord_color(TONALIDAD_ACTUAL / 360) 
+    # NUEVO: Bloque try/except para toda la tarea
+    try: 
+        # 1. Calcular el nuevo valor de Tonalidad (Hue)
+        TONALIDAD_ACTUAL = (TONALIDAD_ACTUAL + INCREMENTO_HUE) % 360
+        
+        # 2. Convertir la tonalidad a formato de color Discord (RGB)
+        new_color_int = hsl_a_discord_color(TONALIDAD_ACTUAL / 360) 
 
-    for guild in bot.guilds:
-        rainbow_role = guild.get_role(ROL_RAINBOW_ID)
+        # 3. Aplicar el color a todos los servidores
+        for guild in bot.guilds:
+            rainbow_role = guild.get_role(ROL_RAINBOW_ID)
 
-        if rainbow_role:
-            try:
-                # No se pasa 'reason' para minimizar el log
-                await rainbow_role.edit(color=new_color_int)
-                print(f"Color de '{rainbow_role.name}' en '{guild.name}' cambiado a {hex(new_color_int)}")
-            except discord.Forbidden:
-                print(f"Error: Bot no puede editar rol '{rainbow_role.name}' en '{guild.name}'.")
-            except Exception as e:
-                print(f"Error al cambiar color: {e}")
-                
+            if rainbow_role:
+                try:
+                    await rainbow_role.edit(color=new_color_int)
+                    # Este print confirma que el bucle sigue vivo
+                    print(f"Color de rol '{rainbow_role.name}' cambiado a HSL({TONALIDAD_ACTUAL}°) / {hex(new_color_int)}")
+                    
+                except discord.Forbidden:
+                    print(f"Error de Permisos: Bot no puede editar rol '{rainbow_role.name}' en '{guild.name}'.")
+                except Exception as e:
+                    print(f"Error al cambiar color del rol en guild: {e}")
+                    
+    except Exception as general_error:
+        # Esto captura cualquier error fuera del bucle de guilds (e.g., error en colorsys)
+        print(f"⚠️ ERROR FATAL EN EL BUCLE cambiar_color_rol: {general_error}")
+        
 # --- INICIO DEL BOT ---
 @bot.event
 async def on_ready():
@@ -105,3 +116,4 @@ else:
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
         print("Error: El token proporcionado es inválido.")
+
