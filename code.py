@@ -87,7 +87,7 @@ async def cambiar_color_rol():
             if rainbow_role:
                 try:
                     await rainbow_role.edit(color=new_color)
-                    print(f"Color de '{rainbow_role.name}' en '{guild.name}' cambiado a {hex(new_color)} (Index: {COLOR_INDEX})")
+                    #print(f"Color de '{rainbow_role.name}' en '{guild.name}' cambiado a {hex(new_color)} (Index: {COLOR_INDEX})")
                 except discord.Forbidden:
                     print(f"Error: Bot no puede editar rol '{rainbow_role.name}' en '{guild.name}'.")
                 except Exception as e:
@@ -111,3 +111,4 @@ else:
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
         print("Error: El token proporcionado es inválido.")
+
