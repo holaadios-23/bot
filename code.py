@@ -15,7 +15,7 @@ EMOJI_REACCION = '✅'
 
 # --- CONFIGURACIÓN ROL ARCOÍRIS ---
 ROL_RAINBOW_ID = 1445836449944567819
-TIEMPO_ENTRE_CAMBIOS = 15.0 # Segundos
+TIEMPO_ENTRE_CAMBIOS = 30.0 # Segundos
 TONALIDAD_ACTUAL = 0 # Hue inicial (0 = Rojo)
 INCREMENTO_HUE = 15 # Pasos del cambio de color (360 / 15 = 24 colores por ciclo)
 
@@ -116,4 +116,5 @@ else:
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
         print("Error: El token proporcionado es inválido.")
+
 
