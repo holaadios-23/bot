@@ -1,67 +1,89 @@
 import os
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
+import datetime 
 
 # Cargar variables de entorno desde un archivo .env
 load_dotenv()
 
 # --- CONFIGURACIÓN PRINCIPAL ---
-# Mueve tu token a un archivo .env por seguridad.
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Reemplaza con los IDs reales de tu servidor
-CANAL_ID = 1357862393698582717    # ID del canal donde se esperan las imágenes
-ROL_APROBADO_ID = 1398080680088436776 # ID del rol a asignar
-
-# El emoji que usará el bot para reaccionar
+# --- CONFIGURACIÓN DE APROBACIÓN DE IMÁGENES (Canal #imagen) ---
+IMAGEN_CANAL_ID = 1357862393698582717    # <--- ID del canal #imagen (o el que uses para la aprobación)
+ROL_APROBADO_ID = 1398080680088436776    # ID del rol a asignar por la imagen
 EMOJI_REACCION = '✅' 
 
+# --- CONFIGURACIÓN DE ANUNCIOS SEMANALES (Canal #juan) ---
+ANUNCIO_CANAL_ID = 1370933615822897282   # <--- ID del canal #juan (¡REEMPLAZAR!)
+ROL_AVISOS_ID = 1393278057963454524      # ID del rol @avisos (¡REEMPLAZAR!)
+
+# Tiempo objetivo para la ejecución diaria (21:00 UTC)
+TARGET_TIME = datetime.time(21, 0, 0, tzinfo=datetime.timezone.utc)
+
 # --- INTENTS ---
-# Necesarios para leer mensajes y acceder a información de miembros y roles.
 intents = discord.Intents.default()
 intents.message_content = True 
 intents.members = True         
 
-# Inicializa el bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- EVENTO DE MENSAJE (APROBACIÓN DE IMAGEN) ---
+# --- TAREA DE ANUNCIO SEMANAL ---
+@tasks.loop(time=TARGET_TIME)
+async def anuncio_semanal():
+    await bot.wait_until_ready()
+    
+    # 1. Verificar si hoy es Sábado (weekday() retorna 5 para Sábado)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    if now.weekday() == 5: # El día es SÁBADO
+        try:
+            for guild in bot.guilds:
+                # Usamos ANUNCIO_CANAL_ID para obtener el canal de destino
+                target_channel = guild.get_channel(ANUNCIO_CANAL_ID)
+                avisos_role = guild.get_role(ROL_AVISOS_ID)
+
+                if target_channel and avisos_role:
+                    message_content = f"{avisos_role.mention} ES HORA DE JUGAR"
+                    await target_channel.send(message_content)
+                    print(f"Anuncio semanal enviado en '{target_channel.name}' de '{guild.name}' a las {now.strftime('%H:%M')} UTC.")
+                elif target_channel and not avisos_role:
+                    print(f"Error: No se encontró el rol de avisos con ID {ROL_AVISOS_ID} en {guild.name}.")
+                elif not target_channel:
+                    print(f"Error: No se encontró el canal de anuncios con ID {ANUNCIO_CANAL_ID} en {guild.name}.")
+        
+        except Exception as e:
+            print(f"Error durante el anuncio semanal: {e}")
+
+
+# --- EVENTO DE MENSAJE (APROBACIÓN DE IMAGEN - Canal #imagen) ---
 @bot.event
 async def on_message(message):
-    # 1. Ignorar mensajes del propio bot o si no están en el canal correcto
-    if message.author.bot or message.channel.id != CANAL_ID:
+    # Usamos IMAGEN_CANAL_ID para la verificación
+    if message.author.bot or message.channel.id != IMAGEN_CANAL_ID:
         return
 
-    # 2. Verificar si el mensaje contiene algún adjunto (Attachment)
     if message.attachments:
         try:
-            # Obtener el objeto Member para manipular los roles
             member = message.guild.get_member(message.author.id)
             if not member:
                 return
             
-            # A. Reaccionar al mensaje
             await message.add_reaction(EMOJI_REACCION)
-
-            # B. Obtener el objeto Role usando el ID
             rol_aprobado = message.guild.get_role(ROL_APROBADO_ID)
 
             if rol_aprobado:
-                # C. Asignar el rol al miembro
                 await member.add_roles(rol_aprobado, reason="Imagen aprobada automáticamente.")
                 print(f"Rol '{rol_aprobado.name}' asignado a {member.name}")
             else:
-                print(f"Error: No se encontró el rol con ID {ROL_APROBADO_ID}")
                 await message.channel.send(f"⚠️ Error de configuración: No se encontró el rol con ID `{ROL_APROBADO_ID}`.")
 
         except discord.Forbidden:
-            print("Error de Permisos: El bot no tiene los permisos necesarios.")
             await message.channel.send("⚠️ Error: No tengo permisos para reaccionar o asignar roles. Por favor, revisa mis permisos.")
         except Exception as e:
-            print(f"Ocurrió un error inesperado: {e}")
+            print(f"Ocurrió un error inesperado en on_message: {e}")
             
-    # Procesa comandos normales si los hubiera
     await bot.process_commands(message)
 
 # --- INICIO DEL BOT ---
@@ -69,9 +91,11 @@ async def on_message(message):
 async def on_ready():
     print(f'Bot iniciado como: {bot.user}')
     print('------')
+    if not anuncio_semanal.is_running():
+        anuncio_semanal.start()
 
 if TOKEN is None:
-    print("Error: El token del bot no está configurado. Asegúrate de crear un archivo .env con DISCORD_TOKEN='tu_token'")
+    print("Error: El token del bot no está configurado.")
 else:
     try:
         bot.run(TOKEN)
