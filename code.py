@@ -2,7 +2,23 @@ import os
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-import datetime 
+import datetime
+from flask import Flask        # <--- Añadir esto
+from threading import Thread    # <--- Añadir esto
+
+# Crear una pequeña app web para Render
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "¡Bot de Discord está vivo!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)))
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
 
 # Cargar variables de entorno desde un archivo .env
 load_dotenv()
@@ -98,6 +114,7 @@ if TOKEN is None:
     print("Error: El token del bot no está configurado.")
 else:
     try:
+        keep_alive() # <--- Llamar a la función antes de bot.run
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
-        print("Error: El token proporcionado es inválido. Revisa tu archivo .env.")
+        print("Error: El token proporcionado es inválido.")
