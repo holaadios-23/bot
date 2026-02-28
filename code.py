@@ -3,18 +3,16 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import datetime
+import random # <--- Para los colores aleatorios
 from flask import Flask
 from threading import Thread
 
-# --- CONFIGURACIÓN PARA RENDER (WEB SERVER) ---
+# --- CONFIGURACIÓN PARA RENDER ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "¡Bot de Discord está vivo y funcionando!"
+def home(): return "Bot Arcoíris Online"
 
 def run_web():
-    # Render asigna un puerto automáticamente en la variable PORT
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -22,87 +20,103 @@ def keep_alive():
     t = Thread(target=run_web)
     t.start()
 
-# --- CARGA DE VARIABLES ---
+# --- CARGA DE VARIABLES Y CONFIG ---
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# --- CONFIGURACIÓN DE IDs ---
 IMAGEN_CANAL_ID = 1357862393698582717
 ROL_APROBADO_ID = 1398080680088436776
 EMOJI_REACCION = '✅'
 ANUNCIO_CANAL_ID = 1370933615822897282
 ROL_AVISOS_ID = 1393278057963454524
+ROL_ARCOIRIS_ID = 123456789012345678 # <--- ¡CAMBIA ESTO!
 
 TARGET_TIME = datetime.time(21, 0, 0, tzinfo=datetime.timezone.utc)
 
-# --- INTENTS ---
 intents = discord.Intents.default()
 intents.message_content = True 
 intents.members = True          
-
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- COMANDO DE VERIFICACIÓN (!test) ---
+# --- FUNCIÓN PARA COLOR ALEATORIO ---
+def obtener_color_aleatorio():
+    # Genera un color vibrante usando random
+    return discord.Color.from_rgb(
+        random.randint(0, 255), 
+        random.randint(0, 255), 
+        random.randint(0, 255)
+    )
+
+# --- TAREA: ROL ARCOÍRIS (ALEATORIO) ---
+@tasks.loop(minutes=5)
+async def cambiar_color_arcoiris():
+    await bot.wait_until_ready()
+    nuevo_color = obtener_color_aleatorio()
+
+    for guild in bot.guilds:
+        rol = guild.get_role(ROL_ARCOIRIS_ID)
+        if rol:
+            try:
+                await rol.edit(color=nuevo_color)
+                print(f"Color de rol cambiado a: {nuevo_color}")
+            except Exception as e:
+                print(f"Error cambiando color: {e}")
+
+# --- NUEVO COMANDO: !color ---
+@bot.command()
+async def color(ctx):
+    """Muestra el color hexadecimal actual del rol arcoíris."""
+    rol = ctx.guild.get_role(ROL_ARCOIRIS_ID)
+    if rol:
+        hex_color = str(rol.color).upper()
+        embed = discord.Embed(
+            title="🌈 Color Actual del Rol", 
+            description=f"El color actual es: **{hex_color}**",
+            color=rol.color
+        )
+        # Esto añade una pequeña imagen del color al embed
+        embed.set_thumbnail(url=f"https://singlecolorimage.com/get/{hex_color[1:]}/100x100")
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ No se encontró el rol arcoíris. Verifica el ID.")
+
+# --- COMANDO: !test ---
 @bot.command()
 async def test(ctx):
-    """Verifica si el bot responde y muestra su latencia."""
     latencia = round(bot.latency * 1000)
-    embed = discord.Embed(title="✅ Estado del Bot", color=0x00ff00)
-    embed.add_field(name="Estado", value="Online", inline=True)
-    embed.add_field(name="Latencia", value=f"{latencia}ms", inline=True)
-    embed.add_field(name="Canal de Imágenes", value=f"<#{IMAGEN_CANAL_ID}>", inline=False)
-    
-    await ctx.send(embed=embed)
-
-# --- TAREA DE ANUNCIO SEMANAL ---
-@tasks.loop(time=TARGET_TIME)
-async def anuncio_semanal():
-    await bot.wait_until_ready()
-    now = datetime.datetime.now(datetime.timezone.utc)
-    
-    if now.weekday() == 5: # SÁBADO
-        try:
-            for guild in bot.guilds:
-                target_channel = guild.get_channel(ANUNCIO_CANAL_ID)
-                avisos_role = guild.get_role(ROL_AVISOS_ID)
-
-                if target_channel and avisos_role:
-                    await target_channel.send(f"{avisos_role.mention} ES HORA DE JUGAR")
-                    print(f"Anuncio enviado en {guild.name}")
-        except Exception as e:
-            print(f"Error en anuncio: {e}")
+    await ctx.send(f"✅ **Bot Online** | Latencia: {latencia}ms")
 
 # --- EVENTO DE MENSAJE (APROBACIÓN) ---
 @bot.event
 async def on_message(message):
-    if message.author.bot:
-        return
-
-    # Si es en el canal de imágenes y tiene adjunto
+    if message.author.bot: return
     if message.channel.id == IMAGEN_CANAL_ID and message.attachments:
         try:
             member = message.guild.get_member(message.author.id)
-            if member:
+            rol_aprobado = message.guild.get_role(ROL_APROBADO_ID)
+            if member and rol_aprobado:
                 await message.add_reaction(EMOJI_REACCION)
-                rol_aprobado = message.guild.get_role(ROL_APROBADO_ID)
-                if rol_aprobado:
-                    await member.add_roles(rol_aprobado)
-                    print(f"Rol asignado a {member.name}")
-        except Exception as e:
-            print(f"Error en on_message: {e}")
-            
-    # IMPORTANTE: Procesar comandos después del on_message
+                await member.add_roles(rol_aprobado)
+        except: pass
     await bot.process_commands(message)
+
+# --- TAREA: ANUNCIO SEMANAL ---
+@tasks.loop(time=TARGET_TIME)
+async def anuncio_semanal():
+    await bot.wait_until_ready()
+    if datetime.datetime.now(datetime.timezone.utc).weekday() == 5:
+        for guild in bot.guilds:
+            canal = guild.get_channel(ANUNCIO_CANAL_ID)
+            rol = guild.get_role(ROL_AVISOS_ID)
+            if canal and rol: await canal.send(f"{rol.mention} ES HORA DE JUGAR")
 
 # --- INICIO ---
 @bot.event
 async def on_ready():
     print(f'Bot iniciado como: {bot.user}')
-    if not anuncio_semanal.is_running():
-        anuncio_semanal.start()
+    if not anuncio_semanal.is_running(): anuncio_semanal.start()
+    if not cambiar_color_arcoiris.is_running(): cambiar_color_arcoiris.start()
 
 if TOKEN:
-    keep_alive() # Inicia el servidor web para Render
+    keep_alive()
     bot.run(TOKEN)
-else:
-    print("No se encontró el TOKEN.")
