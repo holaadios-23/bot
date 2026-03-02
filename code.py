@@ -3,14 +3,14 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import datetime
-import random # <--- Para los colores aleatorios
+import random 
 from flask import Flask
 from threading import Thread
 
 # --- CONFIGURACIÓN PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot Arcoíris Online"
+def home(): return "Bot Online - Arcoíris Desactivado Temporalmente"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
@@ -40,32 +40,30 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # --- FUNCIÓN PARA COLOR ALEATORIO ---
 def obtener_color_aleatorio():
-    # Genera un color vibrante usando random
     return discord.Color.from_rgb(
         random.randint(0, 255), 
         random.randint(0, 255), 
         random.randint(0, 255)
     )
 
-# --- TAREA: ROL ARCOÍRIS (ALEATORIO) ---
-@tasks.loop(minutes=5)
-async def cambiar_color_arcoiris():
-    await bot.wait_until_ready()
-    nuevo_color = obtener_color_aleatorio()
+# --- TAREA: ROL ARCOÍRIS (COMENTADA/DESACTIVADA) ---
+# @tasks.loop(minutes=5)
+# async def cambiar_color_arcoiris():
+#     await bot.wait_until_ready()
+#     nuevo_color = obtener_color_aleatorio()
+#
+#     for guild in bot.guilds:
+#         rol = guild.get_role(ROL_ARCOIRIS_ID)
+#         if rol:
+#             try:
+#                 await rol.edit(color=nuevo_color)
+#                 print(f"Color de rol cambiado a: {nuevo_color}")
+#             except Exception as e:
+#                 print(f"Error cambiando color: {e}")
 
-    for guild in bot.guilds:
-        rol = guild.get_role(ROL_ARCOIRIS_ID)
-        if rol:
-            try:
-                await rol.edit(color=nuevo_color)
-                print(f"Color de rol cambiado a: {nuevo_color}")
-            except Exception as e:
-                print(f"Error cambiando color: {e}")
-
-# --- NUEVO COMANDO: !color ---
+# --- COMANDO: !color (Sigue funcionando para ver el color actual) ---
 @bot.command()
 async def color(ctx):
-    """Muestra el color hexadecimal actual del rol arcoíris."""
     rol = ctx.guild.get_role(ROL_ARCOIRIS_ID)
     if rol:
         hex_color = str(rol.color).upper()
@@ -74,11 +72,10 @@ async def color(ctx):
             description=f"El color actual es: **{hex_color}**",
             color=rol.color
         )
-        # Esto añade una pequeña imagen del color al embed
         embed.set_thumbnail(url=f"https://singlecolorimage.com/get/{hex_color[1:]}/100x100")
         await ctx.send(embed=embed)
     else:
-        await ctx.send("❌ No se encontró el rol arcoíris. Verifica el ID.")
+        await ctx.send("❌ No se encontró el rol arcoíris.")
 
 # --- COMANDO: !test ---
 @bot.command()
@@ -114,10 +111,11 @@ async def anuncio_semanal():
 @bot.event
 async def on_ready():
     print(f'Bot iniciado como: {bot.user}')
-    if not anuncio_semanal.is_running(): anuncio_semanal.start()
-    if not cambiar_color_arcoiris.is_running(): cambiar_color_arcoiris.start()
+    if not anuncio_semanal.is_running(): 
+        anuncio_semanal.start()
+    # La tarea de arcoíris no se inicia porque está comentada arriba
+    # if not cambiar_color_arcoiris.is_running(): cambiar_color_arcoiris.start()
 
 if TOKEN:
     keep_alive()
     bot.run(TOKEN)
-
