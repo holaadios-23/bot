@@ -77,6 +77,7 @@ async def randomcolor(ctx):
 
 """
 
+"""
 # --- NUEVO COMANDO: !setcolor (Cooldown 2h) ---
 @bot.command()
 @commands.cooldown(1, 7200, commands.BucketType.guild)
@@ -102,6 +103,8 @@ async def on_command_error(ctx, error):
         horas = int(error.retry_after // 3600)
         minutos = int((error.retry_after % 3600) // 60)
         await ctx.send(f"⏳ ¡Cálmate! Este comando tiene cooldown. Vuelve en **{horas}h {minutos}m**.")
+
+"""
 
 # --- COMANDO: !test ---
 @bot.command()
@@ -143,4 +146,5 @@ async def on_ready():
 if TOKEN:
     keep_alive()
     bot.run(TOKEN)
+
 
