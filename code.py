@@ -3,14 +3,15 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import datetime
-import random 
+import random
+import colorsys # <--- Para calcular el HSL
 from flask import Flask
 from threading import Thread
 
 # --- CONFIGURACIÓN PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot Online - Esperando Anuncio Semanal"
+def home(): return "Bot con Comandos de Color Online"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
@@ -38,41 +39,74 @@ intents.message_content = True
 intents.members = True          
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- FUNCIÓN PARA CALCULAR PRÓXIMO ANUNCIO ---
+# --- FUNCIONES DE UTILIDAD ---
 def get_next_announcement_date():
     now = datetime.datetime.now(datetime.timezone.utc)
-    # 5 es Sábado. Calculamos días restantes
     days_ahead = (5 - now.weekday() + 7) % 7
-    if days_ahead == 0 and now.time() > TARGET_TIME:
-        days_ahead = 7
-    
+    if days_ahead == 0 and now.time() > TARGET_TIME: days_ahead = 7
     next_date = now + datetime.timedelta(days=days_ahead)
     return next_date.strftime("%d/%m/%Y") + " a las 21:00 UTC"
 
-# --- TAREA: ROL ARCOÍRIS (DESACTIVADA CON COMENTARIOS) ---
-# @tasks.loop(minutes=5)
-# async def cambiar_color_arcoiris():
-#     await bot.wait_until_ready()
-#     nuevo_color = discord.Color.from_rgb(random.randint(0,255), random.randint(0,255), random.randint(0,255))
-#     for guild in bot.guilds:
-#         rol = guild.get_role(ROL_ARCOIRIS_ID)
-#         if rol:
-#             try:
-#                 await rol.edit(color=nuevo_color)
-#             except Exception as e: print(f"Error: {e}")
+# --- NUEVO COMANDO: !randomcolor (Cooldown 2h) ---
+@bot.command()
+@commands.cooldown(1, 7200, commands.BucketType.guild) # 1 uso cada 7200 seg (2h)
+async def randomcolor(ctx):
+    rol = ctx.guild.get_role(ROL_ARCOIRIS_ID)
+    if not rol: return await ctx.send("❌ No configuraste el ROL_ARCOIRIS_ID correctamente.")
 
-# --- COMANDO ACTUALIZADO: !test ---
+    # Generar RGB
+    r, g, b = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
+    nuevo_color = discord.Color.from_rgb(r, g, b)
+    
+    # Calcular HSL
+    h, s, l = colorsys.rgb_to_hls(r/255, g/255, b/255)
+    
+    try:
+        await rol.edit(color=nuevo_color)
+        hex_val = str(nuevo_color).upper()
+        
+        embed = discord.Embed(title="🎨 ¡Color Aleatorio Aplicado!", color=nuevo_color)
+        embed.add_field(name="Hexadecimal", value=f"`{hex_val}`", inline=True)
+        embed.add_field(name="RGB", value=f"`({r}, {g}, {b})`", inline=True)
+        embed.add_field(name="HSL", value=f"`{round(h*360)}°, {round(s*100)}%, {round(l*100)}%`", inline=True)
+        embed.set_thumbnail(url=f"https://singlecolorimage.com/get/{hex_val[1:]}/100x100")
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ Error al editar el rol: {e}")
+
+# --- NUEVO COMANDO: !setcolor (Cooldown 2h) ---
+@bot.command()
+@commands.cooldown(1, 7200, commands.BucketType.guild)
+async def setcolor(ctx, hex_input: str):
+    rol = ctx.guild.get_role(ROL_ARCOIRIS_ID)
+    if not rol: return await ctx.send("❌ Rol no encontrado.")
+
+    # Limpiar el input por si no ponen el #
+    hex_input = hex_input.strip("#")
+    try:
+        color_int = int(hex_input, 16)
+        nuevo_color = discord.Color(color_int)
+        await rol.edit(color=nuevo_color)
+        await ctx.send(f"✅ Se ha cambiado el color del rol a: **#{hex_input.upper()}**")
+    except ValueError:
+        ctx.command.reset_cooldown(ctx) # Si falla el formato, no le cobramos el cooldown
+        await ctx.send("❌ Formato inválido. Usa un hexadecimal real (ej: `!setcolor #FF5733`)")
+
+# --- MANEJO DE ERRORES DE COOLDOWN ---
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        horas = int(error.retry_after // 3600)
+        minutos = int((error.retry_after % 3600) // 60)
+        await ctx.send(f"⏳ ¡Cálmate! Este comando tiene cooldown. Vuelve en **{horas}h {minutos}m**.")
+
+# --- COMANDO: !test ---
 @bot.command()
 async def test(ctx):
     latencia = round(bot.latency * 1000)
-    proximo = get_next_announcement_date()
-    
     embed = discord.Embed(title="✅ Estado del Bot", color=0x00ff00)
-    embed.add_field(name="Estado", value="Online", inline=True)
-    embed.add_field(name="Latencia", value=f"{latencia}ms", inline=True)
-    embed.add_field(name="Canal de Imágenes", value=f"<#{IMAGEN_CANAL_ID}>", inline=False)
-    embed.add_field(name="Próximo Anuncio", value=f"📅 {proximo}", inline=False)
-    
+    embed.add_field(name="Latencia", value=f"{latencia}ms")
+    embed.add_field(name="Próximo Anuncio", value=get_next_announcement_date(), inline=False)
     await ctx.send(embed=embed)
 
 # --- EVENTO DE MENSAJE (APROBACIÓN) ---
@@ -82,10 +116,10 @@ async def on_message(message):
     if message.channel.id == IMAGEN_CANAL_ID and message.attachments:
         try:
             member = message.guild.get_member(message.author.id)
-            rol_aprobado = message.guild.get_role(ROL_APROBADO_ID)
-            if member and rol_aprobado:
+            rol = message.guild.get_role(ROL_APROBADO_ID)
+            if member and rol:
                 await message.add_reaction(EMOJI_REACCION)
-                await member.add_roles(rol_aprobado)
+                await member.add_roles(rol)
         except: pass
     await bot.process_commands(message)
 
@@ -94,12 +128,10 @@ async def on_message(message):
 async def anuncio_semanal():
     await bot.wait_until_ready()
     if datetime.datetime.now(datetime.timezone.utc).weekday() == 5:
-        for guild in bot.guilds:
-            canal = guild.get_channel(ANUNCIO_CANAL_ID)
-            rol = guild.get_role(ROL_AVISOS_ID)
-            if canal and rol: await canal.send(f"{rol.mention} ES HORA DE JUGAR")
+        canal = bot.get_channel(ANUNCIO_CANAL_ID)
+        rol = discord.utils.get(bot.get_all_members(), id=ROL_AVISOS_ID) # Simplificado
+        if canal: await canal.send(f"<@&{ROL_AVISOS_ID}> ES HORA DE JUGAR")
 
-# --- INICIO ---
 @bot.event
 async def on_ready():
     print(f'Bot iniciado como: {bot.user}')
