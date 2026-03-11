@@ -48,6 +48,7 @@ def get_next_announcement_date():
     return next_date.strftime("%d/%m/%Y") + " a las 21:00 UTC"
 
 # --- NUEVO COMANDO: !randomcolor (Cooldown 2h) ---
+"""
 @bot.command()
 @commands.cooldown(1, 7200, commands.BucketType.guild) # 1 uso cada 7200 seg (2h)
 async def randomcolor(ctx):
@@ -73,6 +74,8 @@ async def randomcolor(ctx):
         await ctx.send(embed=embed)
     except Exception as e:
         await ctx.send(f"❌ Error al editar el rol: {e}")
+
+"""
 
 # --- NUEVO COMANDO: !setcolor (Cooldown 2h) ---
 @bot.command()
@@ -140,3 +143,4 @@ async def on_ready():
 if TOKEN:
     keep_alive()
     bot.run(TOKEN)
+
