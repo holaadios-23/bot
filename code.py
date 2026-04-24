@@ -4,6 +4,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import datetime
 import random 
+import asyncio # Necesario para las pausas de limpieza
 from flask import Flask
 from threading import Thread
 
@@ -41,7 +42,6 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # --- FUNCIÓN PARA CALCULAR PRÓXIMO ANUNCIO ---
 def get_next_announcement_date():
     now = datetime.datetime.now(datetime.timezone.utc)
-    # 5 es Sábado. Calculamos días restantes
     days_ahead = (5 - now.weekday() + 7) % 7
     if days_ahead == 0 and now.time() > TARGET_TIME:
         days_ahead = 7
@@ -49,17 +49,31 @@ def get_next_announcement_date():
     next_date = now + datetime.timedelta(days=days_ahead)
     return next_date.strftime("%d/%m/%Y") + " a las 21:00 UTC"
 
-# --- TAREA: ROL ARCOÍRIS (DESACTIVADA CON COMENTARIOS) ---
-# @tasks.loop(minutes=5)
-# async def cambiar_color_arcoiris():
-#     await bot.wait_until_ready()
-#     nuevo_color = discord.Color.from_rgb(random.randint(0,255), random.randint(0,255), random.randint(0,255))
-#     for guild in bot.guilds:
-#         rol = guild.get_role(ROL_ARCOIRIS_ID)
-#         if rol:
-#             try:
-#                 await rol.edit(color=nuevo_color)
-#             except Exception as e: print(f"Error: {e}")
+# --- NUEVO COMANDO: LIMPIEZA GLOBAL ---
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def limpiar_usuario(ctx, usuario: discord.Member, *, texto: str):
+    """Buscador global: !limpiar_usuario @nombre palabra"""
+    msg_inicial = await ctx.send(f"🔍 Escaneando servidor para eliminar mensajes de **{usuario.display_name}** con el texto: `{texto}`...")
+    
+    total_eliminados = 0
+    texto_buscado = texto.lower()
+
+    # Recorremos todos los canales de texto donde el bot tiene acceso
+    for canal in ctx.guild.text_channels:
+        try:
+            # Revisa los últimos 500 mensajes de cada canal
+            async for message in canal.history(limit=500):
+                if message.author.id == usuario.id and texto_buscado in message.content.lower():
+                    await message.delete()
+                    total_eliminados += 1
+                    await asyncio.sleep(0.4) # Evita el baneo por spam de la API
+        except discord.Forbidden:
+            continue # Salta canales donde no tiene permiso
+        except Exception as e:
+            print(f"Error en canal {canal.name}: {e}")
+
+    await ctx.send(f"✅ Proceso terminado. Se eliminaron **{total_eliminados}** mensajes en total.")
 
 # --- COMANDO ACTUALIZADO: !test ---
 @bot.command()
