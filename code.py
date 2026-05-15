@@ -1,17 +1,17 @@
 import os
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 from dotenv import load_dotenv
 import datetime
-import random 
-import asyncio # Necesario para las pausas de limpieza
+import asyncio
 from flask import Flask
 from threading import Thread
 
 # --- CONFIGURACIÓN PARA RENDER ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot Online - Esperando Anuncio Semanal"
+def home(): return "Bot Online"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
@@ -30,64 +30,102 @@ ROL_APROBADO_ID = 1398080680088436776
 EMOJI_REACCION = '✅'
 ANUNCIO_CANAL_ID = 1370933615822897282
 ROL_AVISOS_ID = 1393278057963454524
-ROL_ARCOIRIS_ID = 1455570171627573299
-
 TARGET_TIME = datetime.time(21, 0, 0, tzinfo=datetime.timezone.utc)
+
+# Base de datos temporal para recordatorios (Se borra si el bot se reinicia en Render)
+# Para algo permanente usarías una DB, pero esto sirve para el uso diario.
+db_recordatorios = {} 
+anuncios_activos = True
 
 intents = discord.Intents.default()
 intents.message_content = True 
 intents.members = True          
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- FUNCIÓN PARA CALCULAR PRÓXIMO ANUNCIO ---
-def get_next_announcement_date():
-    now = datetime.datetime.now(datetime.timezone.utc)
-    days_ahead = (5 - now.weekday() + 7) % 7
-    if days_ahead == 0 and now.time() > TARGET_TIME:
-        days_ahead = 7
-    
-    next_date = now + datetime.timedelta(days=days_ahead)
-    return next_date.strftime("%d/%m/%Y") + " a las 21:00 UTC"
+# --- SINCRONIZACIÓN DE COMANDOS SLASH ---
+@bot.event
+async def on_ready():
+    print(f'Bot iniciado como: {bot.user}')
+    try:
+        synced = await bot.tree.sync()
+        print(f"Sincronizados {len(synced)} comandos slash")
+    except Exception as e:
+        print(e)
+    if not anuncio_semanal.is_running(): anuncio_semanal.start()
 
-# --- NUEVO COMANDO: LIMPIEZA GLOBAL ---
+# --- 1. SISTEMA DE RECORDATORIOS ---
+async def crear_recordatorio(interaction_or_ctx, tiempo_min: int, tarea: str):
+    user_id = interaction_or_ctx.author.id if hasattr(interaction_or_ctx, 'author') else interaction_or_ctx.user.id
+    
+    if user_id not in db_recordatorios: db_recordatorios[user_id] = []
+    
+    if len(db_recordatorios[user_id]) >= 5:
+        return "❌ Ya tienes el máximo de 5 recordatorios activos."
+
+    db_recordatorios[user_id].append(tarea)
+    resp = f"⏰ Recordatorio fijado en {tiempo_min} min: **{tarea}**"
+    
+    # Responder según el tipo de origen
+    if isinstance(interaction_or_ctx, discord.Interaction):
+        await interaction_or_ctx.response.send_message(resp)
+    else:
+        await interaction_or_ctx.send(resp)
+
+    await asyncio.sleep(tiempo_min * 60)
+    
+    # Enviar recordatorio
+    user = await bot.fetch_user(user_id)
+    await user.send(f"🔔 **RECORDATORIO:** {tarea}")
+    
+    # Limpiar lista
+    if tarea in db_recordatorios[user_id]:
+        db_recordatorios[user_id].remove(tarea)
+
 @bot.command()
-@commands.has_permissions(manage_messages=True)
-async def limpiar_usuario(ctx, usuario: discord.Member, *, texto: str):
-    """Buscador global: !limpiar_usuario @nombre palabra"""
-    msg_inicial = await ctx.send(f"🔍 Escaneando servidor para eliminar mensajes de **{usuario.display_name}** con el texto: `{texto}`...")
-    
-    total_eliminados = 0
-    texto_buscado = texto.lower()
+async def recordar(ctx, tiempo: int, *, tarea: str):
+    await crear_recordatorio(ctx, tiempo, tarea)
 
-    # Recorremos todos los canales de texto donde el bot tiene acceso
-    for canal in ctx.guild.text_channels:
-        try:
-            # Revisa los últimos 500 mensajes de cada canal
-            async for message in canal.history(limit=500):
-                if message.author.id == usuario.id and texto_buscado in message.content.lower():
-                    await message.delete()
-                    total_eliminados += 1
-                    await asyncio.sleep(0.4) # Evita el baneo por spam de la API
-        except discord.Forbidden:
-            continue # Salta canales donde no tiene permiso
-        except Exception as e:
-            print(f"Error en canal {canal.name}: {e}")
+@bot.tree.command(name="recordar", description="Crea un recordatorio (máximo 5)")
+async def recordar_slash(interaction: discord.Interaction, tiempo_minutos: int, tarea: str):
+    await crear_recordatorio(interaction, tiempo_minutos, tarea)
 
-    await ctx.send(f"✅ Proceso terminado. Se eliminaron **{total_eliminados}** mensajes en total.")
-
-# --- COMANDO ACTUALIZADO: !test ---
+# --- 2. COMANDO PING (! Y /) ---
 @bot.command()
-async def test(ctx):
-    latencia = round(bot.latency * 1000)
-    proximo = get_next_announcement_date()
+async def ping(ctx):
+    await ctx.send(f"🏓 Pong! {round(bot.latency * 1000)}ms")
+
+@bot.tree.command(name="ping", description="Muestra la latencia del bot")
+async def ping_slash(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏓 Pong! {round(bot.latency * 1000)}ms")
+
+# --- 3. DESACTIVAR ANUNCIOS (! Y /) ---
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def toggle_anuncios(ctx):
+    global anuncios_activos
+    anuncios_activos = not anuncios_activos
+    estado = "ACTIVADOS" if anuncios_activos else "DESACTIVADOS"
+    await ctx.send(f"📢 Los anuncios del sábado han sido: **{estado}**")
+
+@bot.tree.command(name="toggle_anuncios", description="Activa o desactiva los anuncios del sábado")
+@app_commands.checks.has_permissions(administrator=True)
+async def toggle_anuncios_slash(interaction: discord.Interaction):
+    global anuncios_activos
+    anuncios_activos = not anuncios_activos
+    estado = "ACTIVADOS" if anuncios_activos else "DESACTIVADOS"
+    await interaction.response.send_message(f"📢 Los anuncios del sábado han sido: **{estado}**")
+
+# --- TAREA: ANUNCIO SEMANAL (CON FILTRO) ---
+@tasks.loop(time=TARGET_TIME)
+async def anuncio_semanal():
+    await bot.wait_until_ready()
+    if not anuncios_activos: return # No hace nada si están desactivados
     
-    embed = discord.Embed(title="✅ Estado del Bot", color=0x00ff00)
-    embed.add_field(name="Estado", value="Online", inline=True)
-    embed.add_field(name="Latencia", value=f"{latencia}ms", inline=True)
-    embed.add_field(name="Canal de Imágenes", value=f"<#{IMAGEN_CANAL_ID}>", inline=False)
-    embed.add_field(name="Próximo Anuncio", value=f"📅 {proximo}", inline=False)
-    
-    await ctx.send(embed=embed)
+    if datetime.datetime.now(datetime.timezone.utc).weekday() == 5:
+        for guild in bot.guilds:
+            canal = guild.get_channel(ANUNCIO_CANAL_ID)
+            rol = guild.get_role(ROL_AVISOS_ID)
+            if canal and rol: await canal.send(f"{rol.mention} ES HORA DE JUGAR")
 
 # --- EVENTO DE MENSAJE (APROBACIÓN) ---
 @bot.event
@@ -102,22 +140,6 @@ async def on_message(message):
                 await member.add_roles(rol_aprobado)
         except: pass
     await bot.process_commands(message)
-
-# --- TAREA: ANUNCIO SEMANAL ---
-@tasks.loop(time=TARGET_TIME)
-async def anuncio_semanal():
-    await bot.wait_until_ready()
-    if datetime.datetime.now(datetime.timezone.utc).weekday() == 5:
-        for guild in bot.guilds:
-            canal = guild.get_channel(ANUNCIO_CANAL_ID)
-            rol = guild.get_role(ROL_AVISOS_ID)
-            if canal and rol: await canal.send(f"{rol.mention} ES HORA DE JUGAR")
-
-# --- INICIO ---
-@bot.event
-async def on_ready():
-    print(f'Bot iniciado como: {bot.user}')
-    if not anuncio_semanal.is_running(): anuncio_semanal.start()
 
 if TOKEN:
     keep_alive()
