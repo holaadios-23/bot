@@ -177,7 +177,7 @@ async def prismatico(ctx):
         return
     
     if not tiene_rol_requerido(member):
-        await ctx.send("❌ Necesitas tener Nivel 4, 5 o 6 para obtener el rol prismático.")
+        await ctx.send("❌ Necesitas ser cultista veterano/supremo o sacerdote para obtener el rol prismático.")
         return
     
     if rol_prismatico in member.roles:
@@ -195,7 +195,7 @@ async def prismatico(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error al asignar el rol: {e}")
 
-@bot.tree.command(name="prismatico", description="Obtén el rol prismático (requiere Nivel 4, 5 o 6)")
+@bot.tree.command(name="prismatico", description="Obtén el rol prismático (requiere cultista veterano/supremo o sacerdote)")
 async def prismatico_slash(interaction: discord.Interaction):
     """Obtener el rol prismático (versión slash)"""
     member = interaction.user
@@ -207,7 +207,7 @@ async def prismatico_slash(interaction: discord.Interaction):
         return
     
     if not tiene_rol_requerido(member):
-        await interaction.response.send_message("❌ Necesitas tener Nivel 4, 5 o 6 para obtener el rol prismático.")
+        await interaction.response.send_message("❌ Necesitas ser cultista veterano/supremo o sacerdote para obtener el rol prismático.")
         return
     
     if rol_prismatico in member.roles:
