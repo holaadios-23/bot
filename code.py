@@ -35,6 +35,7 @@ ANUNCIO_CANAL_ID = 1370933615822897282
 ROL_AVISOS_ID = 1393278057963454524
 TARGET_TIME = datetime.time(21, 0, 0, tzinfo=datetime.timezone.utc)
 ROL_PRISMATICO_ID = 1397336931561635883
+ROLES_REQUERIDOS = [1360802756188835921, 1360802776111775937, 1407853815927017492]  # Nivel 4, 5, 6
 
 # Variables de estado
 db_recordatorios = {} 
@@ -141,6 +142,13 @@ async def toggle_anuncios_slash(interaction: discord.Interaction):
     await interaction.response.send_message(f"📢 Los anuncios del sábado han sido: **{estado}**")
 
 # --- SISTEMA PRISMÁTICO ---
+def tiene_rol_requerido(member):
+    """Verifica si el miembro tiene uno de los roles requeridos"""
+    for rol_id in ROLES_REQUERIDOS:
+        if any(role.id == rol_id for role in member.roles):
+            return True
+    return False
+
 def is_valid_hex(color):
     """Valida que sea un color hex válido"""
     if len(color) != 7:
@@ -168,6 +176,10 @@ async def prismatico(ctx):
         await ctx.send("❌ El rol prismático no existe en este servidor.")
         return
     
+    if not tiene_rol_requerido(member):
+        await ctx.send("❌ Necesitas tener Nivel 4, 5 o 6 para obtener el rol prismático.")
+        return
+    
     if rol_prismatico in member.roles:
         await ctx.send("✨ ¡Ya tienes el rol prismático!")
         return
@@ -182,6 +194,36 @@ async def prismatico(ctx):
         await ctx.send(embed=embed)
     except Exception as e:
         await ctx.send(f"❌ Error al asignar el rol: {e}")
+
+@bot.tree.command(name="prismatico", description="Obtén el rol prismático (requiere Nivel 4, 5 o 6)")
+async def prismatico_slash(interaction: discord.Interaction):
+    """Obtener el rol prismático (versión slash)"""
+    member = interaction.user
+    guild = interaction.guild
+    rol_prismatico = guild.get_role(ROL_PRISMATICO_ID)
+    
+    if not rol_prismatico:
+        await interaction.response.send_message("❌ El rol prismático no existe en este servidor.")
+        return
+    
+    if not tiene_rol_requerido(member):
+        await interaction.response.send_message("❌ Necesitas tener Nivel 4, 5 o 6 para obtener el rol prismático.")
+        return
+    
+    if rol_prismatico in member.roles:
+        await interaction.response.send_message("✨ ¡Ya tienes el rol prismático!")
+        return
+    
+    try:
+        await member.add_roles(rol_prismatico)
+        embed = discord.Embed(
+            title="✨ ¡Bienvenido al club prismático!",
+            description="Ahora puedes cambiar el color de tu nombre.\n\n**Comandos disponibles:**\n`/colorprismatico #FFFFFF` - Cambiar color (cada 2 días)\n`/randomcolor` - Color aleatorio (cada 2 horas)",
+            color=discord.Color.from_str("#FF00FF")
+        )
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error al asignar el rol: {e}")
 
 @bot.command(name="colorprismatico")
 async def colorprismatico(ctx, color: str):
@@ -227,6 +269,50 @@ async def colorprismatico(ctx, color: str):
     except Exception as e:
         await ctx.send(f"❌ Error al cambiar el color: {e}")
 
+@bot.tree.command(name="colorprismatico", description="Cambiar el color del rol prismático (cada 2 días)")
+async def colorprismatico_slash(interaction: discord.Interaction, color: str):
+    """Cambiar el color del rol prismático (versión slash)"""
+    member = interaction.user
+    guild = interaction.guild
+    rol_prismatico = guild.get_role(ROL_PRISMATICO_ID)
+    
+    if not rol_prismatico:
+        await interaction.response.send_message("❌ El rol prismático no existe.")
+        return
+    
+    if rol_prismatico not in member.roles:
+        await interaction.response.send_message("❌ No tienes el rol prismático. Usa `/prismatico` primero.")
+        return
+    
+    if not is_valid_hex(color):
+        await interaction.response.send_message("❌ Color inválido. Usa el formato: `#FFFFFF` (hexadecimal)")
+        return
+    
+    # Verificar cooldown (2 días = 172800 segundos)
+    user_id = member.id
+    tiempo_actual = time.time()
+    
+    if user_id in prismatico_cooldowns:
+        tiempo_pasado = tiempo_actual - prismatico_cooldowns[user_id]
+        if tiempo_pasado < 172800:  # 2 días
+            horas_restantes = (172800 - tiempo_pasado) / 3600
+            await interaction.response.send_message(f"⏳ Debes esperar {horas_restantes:.1f} horas más para cambiar de color.")
+            return
+    
+    try:
+        color_int = hex_to_int(color)
+        await rol_prismatico.edit(color=discord.Color(color_int))
+        prismatico_cooldowns[user_id] = tiempo_actual
+        
+        embed = discord.Embed(
+            title="🎨 Color actualizado",
+            description=f"Tu color prismático ahora es: `{color}`",
+            color=discord.Color(color_int)
+        )
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error al cambiar el color: {e}")
+
 @bot.command(name="randomcolor")
 async def randomcolor(ctx):
     """Cambiar a un color aleatorio (máximo cada 2 horas)"""
@@ -268,6 +354,48 @@ async def randomcolor(ctx):
         await ctx.send(embed=embed)
     except Exception as e:
         await ctx.send(f"❌ Error al cambiar a color aleatorio: {e}")
+
+@bot.tree.command(name="randomcolor", description="Cambiar a un color aleatorio (cada 2 horas)")
+async def randomcolor_slash(interaction: discord.Interaction):
+    """Cambiar a un color aleatorio (versión slash)"""
+    member = interaction.user
+    guild = interaction.guild
+    rol_prismatico = guild.get_role(ROL_PRISMATICO_ID)
+    
+    if not rol_prismatico:
+        await interaction.response.send_message("❌ El rol prismático no existe.")
+        return
+    
+    if rol_prismatico not in member.roles:
+        await interaction.response.send_message("❌ No tienes el rol prismático. Usa `/prismatico` primero.")
+        return
+    
+    # Verificar cooldown (2 horas = 7200 segundos)
+    user_id = member.id
+    tiempo_actual = time.time()
+    
+    if user_id in prismatico_random_cooldowns:
+        tiempo_pasado = tiempo_actual - prismatico_random_cooldowns[user_id]
+        if tiempo_pasado < 7200:  # 2 horas
+            minutos_restantes = (7200 - tiempo_pasado) / 60
+            await interaction.response.send_message(f"⏳ Debes esperar {minutos_restantes:.1f} minutos más para usar randomcolor.")
+            return
+    
+    try:
+        color_aleatorio = random.randint(0, 0xFFFFFF)
+        color_hex = f"#{color_aleatorio:06X}"
+        
+        await rol_prismatico.edit(color=discord.Color(color_aleatorio))
+        prismatico_random_cooldowns[user_id] = tiempo_actual
+        
+        embed = discord.Embed(
+            title="🌈 Color aleatorio aplicado",
+            description=f"Tu nuevo color es: `{color_hex}`",
+            color=discord.Color(color_aleatorio)
+        )
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error al cambiar a color aleatorio: {e}")
 
 # --- TAREAS Y EVENTOS ---
 @tasks.loop(time=TARGET_TIME)
